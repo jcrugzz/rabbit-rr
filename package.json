@@ -1,0 +1,28 @@
+{
+  "name": "rabbit-rr",
+  "version": "0.1.0",
+  "description": "Simple rabbitmq client for use with REQ/REP pattern",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:jcrugzz/rabbit-rr.git"
+  },
+  "keywords": [
+    "rabbitmq",
+    "amqp",
+    "qmqplib",
+    "rabbit"
+  ],
+  "author": "Jarrett Cruger <jcrugzz@gmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/jcrugzz/rabbit-rr/issues"
+  },
+  "homepage": "https://github.com/jcrugzz/rabbit-rr",
+  "dependencies": {
+    "amqplib": "~0.3.0"
+  }
+}
