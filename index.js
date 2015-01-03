@@ -40,7 +40,14 @@ Rabbit.prototype._onConnect = function (err, conn) {
     this.connection.on(ev, this.emit.bind(this, ev));
   }, this);
 
+  //
   // TODO: Maybe support the creation of multiple channels in the future
+  // but for now we only need one. This is required when creating multiple
+  // sockets from the same rabbit-rr instance in the same process if we want
+  // them to have different channels. But strictly separate channels are only
+  // used for multiplexing purposes so we can technically intermingle without
+  // issue.
+  //
   this.connection.createChannel(this._onChannel.bind(this));
 
 };
@@ -48,7 +55,9 @@ Rabbit.prototype._onConnect = function (err, conn) {
 Rabbit.prototype._onChannel = function (err, ch) {
   if (err) return this.emit('error', err);
   this.channel = ch;
-  this.emit('ready', ch)
+  this.emit('ready', ch);
+
+
 };
 
 Rabbit.prototype.socket = function (type, options) {

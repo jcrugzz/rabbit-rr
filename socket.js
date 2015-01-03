@@ -25,7 +25,9 @@ function Socket (rabbit, options) {
   this.rabbit = rabbit;
   this.options = options || {};
 
-  this.methods = ['connect', 'send'];
+  // Only try and defer connect because send makes things way complicated right
+  // now
+  this.methods = ['connect'];
   this.channel = undefined;
   // Operations called potentially before a channel exists
   this.operations = [];
@@ -78,6 +80,22 @@ Socket.prototype._runDeferred = function (channel) {
 
 Socket.prototype._setChannel = function (channel) {
   this.channel = channel;
+
+  this.channel.on('error', this.emit.bind(this, 'error'));
+  //
+  // TODO: Do we have to cleanup anything?
+  //
+  this.channel.on('close', this.emit.bind(this, 'close'));
+  //
+  // These aren't strictly necessary but could be interesting to look at maybe?
+  //
+  this.channel.on('drain', this.emit.bind(this, 'drain'));
+  this.channel.on('readable', this.emit.bind(this, 'readable'));
+};
+
+Socket.prototype.close =
+Socket.prototype.end = function () {
+  this.channel.close();
 };
 
 Socket.prototype.parse = function (content) {
@@ -102,7 +120,8 @@ Socket.prototype.pack = function (message) {
 util.inherits(RepSocket, Socket);
 
 function RepSocket() {
-  Socket.call(this);
+  this.methods = ['connect'];
+  Socket.apply(this, arguments);
 
   this.consumers = {};
 }
@@ -117,8 +136,11 @@ RepSocket.prototype.connect = function (source, callback) {
     if (err) return callback ? callback(err) : self.emit('error', err);
     this.channel.consume(source, this._consume.bind(this), { noAck: false });
     this.consumers[source] = ok.consumerTag;
+    this.emit('connect', source);
     callback && callback();
   });
+
+  return this;
 };
 
 RepSocket.prototype._consume = function (msg) {
@@ -168,13 +190,12 @@ RepSocket.prototype._consume = function (msg) {
 util.inherits(ReqSocket, Socket);
 
 function ReqSocket () {
-  Socket.call(this);
+  this.methods = ['connect'];
+  Socket.apply(this, arguments);
   this.replyTo = undefined;
   this.rx = 0;
   this.queues = [];
   this.callbacks = {};
-  // Remember what
-  this.type = {};
 
   if (this.ready && this.channel)
     this._setupConsumer();
@@ -196,14 +217,12 @@ ReqSocket.prototype._setupConsumer = function () {
 };
 
 ReqSocket.prototype._consume = function (msg) {
-  if (msg !== null) {
-    this.reply(msg);
-    //
-    // Remark:I guess we have to pre-ack since the queue is ephemeral but
-    // I do want more durability here
-    //
-    return this.channel.ack(msg);
-  }
+  if (msg === null) return;
+
+  this.reply(msg);
+
+  this.channel.ack(msg);
+
 };
 
 ReqSocket.prototype.reply = function (msg) {
@@ -213,7 +232,7 @@ ReqSocket.prototype.reply = function (msg) {
   //
   // TODO: Support more than this and maybe try / catch for safety
   //
-  var message = JSON.parse(msg.content);
+  var message = this.parse(message.content);
   //
   // Remark: since we can't really error should we just respond with the message?
   //
@@ -231,6 +250,8 @@ ReqSocket.prototype.connect = function (destination, callback) {
     self.emit('connect', ok.queue);
     callback && callback();
   });
+
+  return this;
 };
 
 ReqSocket.prototype.id = function () {
@@ -242,6 +263,10 @@ ReqSocket.prototype.id = function () {
 // be more flexible
 //
 ReqSocket.prototype.send = function (message, callback) {
+  //
+  // Remark:Simple round-robin without array mutation
+  // if we have more than one queue to send to
+  //
   if (this.rx >= this.queues.length) this.rx = 0;
   var queue = this.queues[this.rx++];
 
