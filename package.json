@@ -23,6 +23,8 @@
   },
   "homepage": "https://github.com/jcrugzz/rabbit-rr",
   "dependencies": {
-    "amqplib": "~0.3.0"
+    "amqplib": "~0.3.0",
+    "diagnostics": "0.0.4",
+    "uuid": "~2.0.1"
   }
 }

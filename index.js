@@ -2,7 +2,7 @@
 var EE = require('events').EventEmitter;
 var util = require('util');
 var amqp = require('amqplib/callback_api');
-var Socket = require('./socket');
+var sockets = require('./socket');
 
 module.exports = Rabbit;
 
@@ -35,7 +35,10 @@ Rabbit.prototype._onConnect = function (err, conn) {
   this.connection = conn;
   this.emit('connect', this.connection);
 
-  this.connection.on('error', this.emit.bind(this, 'error'));
+  // Proxy events that might matter
+  ['close', 'blocked', 'unblocked', 'error'].forEach(function (ev) {
+    this.connection.on(ev, this.emit.bind(this, ev));
+  }, this);
 
   // TODO: Maybe support the creation of multiple channels in the future
   this.connection.createChannel(this._onChannel.bind(this));
@@ -48,7 +51,12 @@ Rabbit.prototype._onChannel = function (err, ch) {
   this.emit('ready', ch)
 };
 
-Rabbit.prototype.socket = function (type) {
-  return new Socket(type, this);
+Rabbit.prototype.socket = function (type, options) {
+  var Socket = sockets[type];
+  if (!Socket) {
+    var error = new Error('Invalid socket type');
+    return process.nextTick(this.emit.bind(this, 'error', error));
+  }
+  return new Socket(this, options);
 };
 
