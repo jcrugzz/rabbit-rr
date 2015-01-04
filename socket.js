@@ -38,22 +38,26 @@ function Socket (rabbit, options) {
   //
   this.ready = false;
 
+  //
+  // Remark: we always defer send if we are a REQ socket
+  // because other async things ALWAYS need to happen when a
+  // REQ socket is constructed.
+  //
+  if (~this.methods.indexOf('send')) this._deferMethod('send');
   if(!this.rabbit.ready) {
-    this._deferMethods();
+    this._deferMethod('connect');
     this.rabbit.once('ready', this._setup.bind(this));
   } else {
     this._setChannel(this.rabbit.channel);
   }
 }
 
-Socket.prototype._deferMethods = function () {
+Socket.prototype._deferMethod = function (method) {
   var self = this;
-  this.methods.forEach(function(method) {
-    self[method] = function () {
-      self._operation(method, arguments);
-      return self;
-    }
-  });
+  this[method] = function () {
+    self._operation(method, arguments);
+    return self;
+  }
 };
 
 Socket.prototype._operation = function (method, args) {
