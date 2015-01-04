@@ -4,7 +4,8 @@
   "description": "Simple rabbitmq client for use with REQ/REP pattern",
   "main": "index.js",
   "scripts": {
-    "test": "istanbul cover ./node_modules/mocha/bin/_mocha $(find test -name '*.test.js') --report lcovonly -- -R spec && cat ./coverage/lcov.info | ./node_modules/coveralls/bin/coveralls.js || true && rm -rf ./coverage"
+    "test": "istanbul cover ./node_modules/mocha/bin/_mocha $(find test -name '*.test.js') --report lcovonly -- -R spec && cat ./coverage/lcov.info | ./node_modules/coveralls/bin/coveralls.js || true && rm -rf ./coverage",
+    "coverage": "istanbul cover ./node_modules/mocha/bin/_mocha $(find test -name '*.test.js') -- -R spec"
   },
   "repository": {
     "type": "git",
