@@ -1,5 +1,8 @@
 # rabbit-rr
 
+[![build status](https://secure.travis-ci.org/jcrugzz/rabbit-rr.svg)](http://travis-ci.org/jcrugzz/rabbit-rr)[![Coverage
+Status](https://img.shields.io/coveralls/jcrugzz/rabbit-rr.svg)](https://coveralls.io/r/jcrugzz/rabbit-rr)
+
 A simple rabbitmq module based on [`amqplib`][amqplib] and inspired by
 [`rabbit.js`][rabbit.js] meant to provide a simple callback interface for using
 a req/rep pattern. This is ideal when doing concurrent operations that require
