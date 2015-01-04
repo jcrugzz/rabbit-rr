@@ -55,7 +55,8 @@ var req = rabbit.socket('REQ')
     console.log('REQ has connected to queue');
   })
   // We assume and parse payloads as objects
-  .send({ foo: 'bar' }, function (_, msg) {
+  .send({ foo: 'bar' }, function (err, msg) {
+    if (err) return console.error('application error from REP socket %s', err.message)
     console.log('received msg %j', msg);
   });
 
