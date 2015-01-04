@@ -4,7 +4,7 @@
   "description": "Simple rabbitmq client for use with REQ/REP pattern",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "istanbul cover ./node_modules/mocha/bin/_mocha $(find test -name '*.test.js') --report lcovonly -- -R spec && cat ./coverage/lcov.info | ./node_modules/coveralls/bin/coveralls.js || true && rm -rf ./coverage"
   },
   "repository": {
     "type": "git",
@@ -26,5 +26,11 @@
     "amqplib": "~0.3.0",
     "diagnostics": "0.0.4",
     "uuid": "~2.0.1"
+  },
+  "devDependencies": {
+    "assume": "0.0.13",
+    "coveralls": "~2.11.2",
+    "istanbul": "~0.3.5",
+    "mocha": "~2.1.0"
   }
 }
