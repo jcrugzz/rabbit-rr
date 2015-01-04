@@ -8,7 +8,7 @@ a req/rep pattern. This is ideal when doing concurrent operations that require
 the return callback to be properly associated with the data that was sent (and
 the result then returned)
 
-Goal:
+## Goal:
 
 The purpose of this module is to hide all of the dirty async startup needed when
 connecting to rabbit. When initializing a constructor, we establish a `connection` to rabbit and
@@ -22,7 +22,7 @@ the `REP` socket which emits any message received from a `REQ` socket with
 a callback to reply to it. Please see the example below to understand my
 ramblings.
 
-Example:
+## Example:
 
 Below shows a simple use case
 
