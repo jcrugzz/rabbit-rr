@@ -1,6 +1,6 @@
 {
   "name": "rabbit-rr",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Simple rabbitmq client for use with REQ/REP pattern",
   "main": "index.js",
   "scripts": {
