@@ -27,10 +27,12 @@ function Socket (rabbit, options) {
 
   // Only try and defer connect because send makes things way complicated right
   // now
-  this.methods = ['connect'];
   this.channel = undefined;
   // Operations called potentially before a channel exists
-  this.operations = [];
+  this.operations = this.methods.reduce(function(acc, method) {
+    acc[method] = [];
+    return acc;
+  }, {});
   //
   // So we can probably still grab the methods off the prototype even af
   //
@@ -38,7 +40,7 @@ function Socket (rabbit, options) {
 
   if(!this.rabbit.ready) {
     this._deferMethods();
-    this.rabbit.once('ready', this._runDeferred.bind(this));
+    this.rabbit.once('ready', this._setup.bind(this));
   } else {
     this._setChannel(this.rabbit.channel);
   }
@@ -49,36 +51,36 @@ Socket.prototype._deferMethods = function () {
   this.methods.forEach(function(method) {
     self[method] = function () {
       self._operation(method, arguments);
+      return self;
     }
   });
 };
 
 Socket.prototype._operation = function (method, args) {
-  if (this.channel && this.ready) {
+  if (this.channel && this.ready && method === 'connect') {
     return this[method].apply(this, args);
   }
-  this.operations.push({ method: method, args: args });
+  this.operations[method].push({ method: method, args: args });
 };
 
-Socket.prototype._runDeferred = function (channel) {
+Socket.prototype._setup = function (channel) {
   this._setChannel(channel);
-  this.methods.forEach(function(method) {
-    //
-    // Remark: By deleting the method it should properly go back to the prototype
-    // version
-    //
-    delete this[method];
-  }, this);
-
-  this.operations.forEach(function(op) {
-    this[op.method].apply(this, op.args);
-  }, this);
-
+  this._runDeferred('connect');
   this.emit('ready');
   this.ready = true;
 };
 
+Socket.prototype._runDeferred = function (method) {
+  delete this[method];
+  var op;
+  while((op = this.operations[method].shift())) {
+   debug('running deferred operation %s with args %j', op.method, op.args);
+   this[op.method].apply(this, op.args)
+  }
+};
+
 Socket.prototype._setChannel = function (channel) {
+  debug('channel is set on the %s socket instance', this.type);
   this.channel = channel;
 
   this.channel.on('error', this.emit.bind(this, 'error'));
@@ -101,8 +103,8 @@ Socket.prototype.end = function () {
 Socket.prototype.parse = function (content) {
   var message;
 
-  try { JSON.parse(content); }
-  catch (ex) { message = undefined; }
+  try { message = JSON.parse(content); }
+  catch (ex) { console.log(ex); message = undefined; }
 
   if (!message) this.emit('parse error', content);
   return message;
@@ -120,6 +122,7 @@ Socket.prototype.pack = function (message) {
 util.inherits(RepSocket, Socket);
 
 function RepSocket() {
+  this.type = 'REP';
   this.methods = ['connect'];
   Socket.apply(this, arguments);
 
@@ -134,9 +137,9 @@ RepSocket.prototype.connect = function (source, callback) {
 
   this.channel.assertQueue(source, { durable: this.options.persistent }, function (err, ok) {
     if (err) return callback ? callback(err) : self.emit('error', err);
-    this.channel.consume(source, this._consume.bind(this), { noAck: false });
-    this.consumers[source] = ok.consumerTag;
-    this.emit('connect', source);
+    self.channel.consume(source, self._consume.bind(self), { noAck: false });
+    self.consumers[source] = ok.consumerTag;
+    self.emit('connect', source);
     callback && callback();
   });
 
@@ -145,15 +148,17 @@ RepSocket.prototype.connect = function (source, callback) {
 
 RepSocket.prototype._consume = function (msg) {
   var self = this;
+  debug('Rep socket received message %j', msg);
   if (msg === null) return;
 
   var id = msg.properties.correlationId;
   var payload = this.parse(msg.content);
-  if (!payload) return;
+  if (!payload) return debug('unparsable payload');
 
   this.emit('message', payload, reply);
 
   function reply(err, data) {
+    debug('rep socket reply being executed');
     if (err) {
       //
       // Remark: This is something weird TBH as it shouldn't happen
@@ -190,8 +195,10 @@ RepSocket.prototype._consume = function (msg) {
 util.inherits(ReqSocket, Socket);
 
 function ReqSocket () {
-  this.methods = ['connect'];
+  this.type = 'REQ';
+  this.methods = ['connect', 'send'];
   Socket.apply(this, arguments);
+
   this.replyTo = undefined;
   this.rx = 0;
   this.queues = [];
@@ -210,29 +217,31 @@ ReqSocket.prototype._setupConsumer = function () {
   //
   this.channel.assertQueue('', {exclusive: true, autoDelete: true }, function (err, ok) {
     if (err) { return self.emit('error', err); }
-    self.replyQ = ok.queue;
-
-    self.channel.consume(ok.queue, this._consume.bind(this), { noAck:false, exclusive: true });
+    self.replyTo = ok.queue;
+    self._canMaybeSend();
+    self.channel.consume(ok.queue, self._consume.bind(self), { noAck: false, exclusive: true });
   });
+};
+
+ReqSocket.prototype._canMaybeSend = function () {
+  debug('canMaybeSend called');
+  if (!this.replyTo || !this.queues.length) return;
+  this._runDeferred('send');
 };
 
 ReqSocket.prototype._consume = function (msg) {
   if (msg === null) return;
-
+  debug('Req socket received reply over ephemeral queue %s %j', this.replyTo, msg);
   this.reply(msg);
-
   this.channel.ack(msg);
-
 };
 
 ReqSocket.prototype.reply = function (msg) {
   var id = msg.properties.correlationId;
   var fn = this.callbacks[id];
   if (!fn) return debug('missing callback for %s', id);
-  //
-  // TODO: Support more than this and maybe try / catch for safety
-  //
-  var message = this.parse(message.content);
+
+  var message = this.parse(msg.content);
   //
   // Remark: since we can't really error should we just respond with the message?
   //
@@ -247,7 +256,8 @@ ReqSocket.prototype.connect = function (destination, callback) {
     { durable: this.options.persistent }, function (err, ok) {
     if (err) return callback ? callback(err) : self.emit('error', err);
     self.queues.push(ok.queue);
-    self.emit('connect', ok.queue);
+    self._canMaybeSend();
+    self.emit('connect');
     callback && callback();
   });
 
@@ -264,7 +274,7 @@ ReqSocket.prototype.id = function () {
 //
 ReqSocket.prototype.send = function (message, callback) {
   //
-  // Remark:Simple round-robin without array mutation
+  // Remark: Simple round-robin without array mutation
   // if we have more than one queue to send to
   //
   if (this.rx >= this.queues.length) this.rx = 0;
@@ -279,6 +289,7 @@ ReqSocket.prototype.send = function (message, callback) {
   var id = callback.id = this.id();
   this.callbacks[id] = callback;
 
+  debug('req socket sending message %j to queue %s with replyTo %s ', message, queue, this.replyTo);
   var options = {
     replyTo: this.replyTo,
     deliveryMode: true,

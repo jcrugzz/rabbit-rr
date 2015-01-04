@@ -8,6 +8,7 @@ module.exports = Rabbit;
 
 function Rabbit(options) {
   if (!(this instanceof Rabbit)) return new Rabbit(options);
+  EE.call(this);
   options = options || {};
 
   if (typeof options === 'string') {
@@ -22,6 +23,8 @@ function Rabbit(options) {
   this.connect();
 
 }
+
+util.inherits(Rabbit, EE);
 
 Rabbit.prototype.connect = function () {
   amqp.connect(this.url, this.options, this._onConnect.bind(this));
@@ -67,5 +70,9 @@ Rabbit.prototype.socket = function (type, options) {
     return process.nextTick(this.emit.bind(this, 'error', error));
   }
   return new Socket(this, options);
+};
+
+Rabbit.prototype.close = function () {
+  this.connection.close();
 };
 
