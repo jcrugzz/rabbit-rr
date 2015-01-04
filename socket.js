@@ -166,7 +166,7 @@ RepSocket.prototype._consume = function (msg) {
       // jsut in case.
       //
       self.emit('application error', err);
-      data = { success: false, message: err.message };
+      data = { error: true, message: err.message };
     }
 
     var replyTo = msg.properties.replyTo;
@@ -245,6 +245,10 @@ ReqSocket.prototype.reply = function (msg) {
   //
   // Remark: since we can't really error should we just respond with the message?
   //
+  if (message.error && message.message) {
+    var error = new Error(message.message);
+    return fn(error);
+  }
   fn(null, message);
   delete this.callbacks[id];
 };
