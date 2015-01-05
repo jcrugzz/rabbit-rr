@@ -162,7 +162,7 @@ RepSocket.prototype._consume = function (msg) {
   this.emit('message', payload, reply);
 
   function reply(err, data) {
-    debug('rep socket reply being executed');
+    debug('rep socket reply being executed %j', arguments);
     if (err) {
       //
       // Remark: This is something weird TBH as it shouldn't happen
@@ -234,7 +234,7 @@ ReqSocket.prototype._canMaybeSend = function () {
 };
 
 ReqSocket.prototype._consume = function (msg) {
-  if (msg === null) return;
+  if (msg === null) return debug('Req socket msg received is null');
   debug('Req socket received reply over ephemeral queue %s %j', this.replyTo, msg);
   this.reply(msg);
   this.channel.ack(msg);
