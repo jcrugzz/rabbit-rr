@@ -49,6 +49,65 @@ describe('Simple request/reply', function () {
       });
   });
 
+  it('should work when prefetch is passed as an option and throttle requests processed', function (done) {
+    var count = 0;
+    var receipts = {
+      first: false,
+      second: false
+    };
+
+    function isDone() {
+      if (receipts.first && receipts.second) done();
+    }
+    var rabbit = new Rabbit()
+      .on('error', function (err) {
+        console.error(err);
+        console.log(err.stack);
+        done(err);
+      });
+
+    var oRab = new Rabbit()
+      .on('error', done);
+
+    var req = rabbit.socket('REQ')
+      .on('error', done)
+      .on('ready', function () {
+        console.log('req ready');
+      })
+      .connect('super_new_queue')
+      .send({ test: 'what' }, function(err, message) {
+        assume(err).to.not.exist();
+        assume(message.first).is.ok();
+        isDone();
+      })
+      .send({ test: 'huh' }, function (err, message) {
+        assume(err).to.not.exist();
+        assume(message.second).is.ok();
+        isDone();
+      });
+
+
+    var rep = oRab.socket('REP', { prefetch: 1 })
+      .on('error', done)
+      .on('ready', function () {
+        console.log('rep ready');
+      })
+      .connect('super_new_queue')
+      .on('message', function (msg, reply) {
+        if (count++ === 0) {
+          receipts.first = true;
+          assume(receipts.second).to.equal(false);
+          return setTimeout(function () {
+            reply(undefined, { first: true });
+          }, 1000);
+        }
+        assume(count).to.eql(2);
+        assume(receipts.first).to.equal(true);
+        receipts.second = true;
+        return reply(undefined, { second: true });
+      });
+  });
+
   it('should handle concurrent messages with different connections', function (done) {
     var count = 0;
 
