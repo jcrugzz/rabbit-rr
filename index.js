@@ -80,6 +80,7 @@ Rabbit.prototype._onError = function (type, err) {
   var back = this.attempt || new Back(this._backoff);
   return back.backoff(function (fail) {
     if (fail) {
+      this.attempt = null;
       self.reconnecting = false;
       return self.emit('error', err);
     }
@@ -93,6 +94,7 @@ Rabbit.prototype._onChannel = function (err, ch) {
   this.channel = ch;
   this.reconnecting = false;
   this.connected = true;
+  this.attempt = null;
 
   this.channel.on('error', this._onError.bind(this, 'channel'));
   this.channel.on('close', this.emit.bind(this, 'channel close'));
