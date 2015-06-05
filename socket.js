@@ -86,6 +86,10 @@ Socket.prototype._runDeferred = function (method) {
 Socket.prototype._setChannel = function (channel) {
   debug('channel is set on the %s socket instance', this.type);
   this.channel = channel;
+  if (this.options.prefetch) {
+    debug('set prefetch');
+    this.channel.prefetch(this.options.prefetch);
+  }
 
   this.channel.on('error', this.emit.bind(this, 'error'));
   //
