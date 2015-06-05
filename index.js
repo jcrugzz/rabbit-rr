@@ -1,8 +1,15 @@
 
 var EE = require('events').EventEmitter;
 var util = require('util');
+var Back = require('back');
 var amqp = require('amqplib/callback_api');
 var sockets = require('./socket');
+
+var backoff = {
+  retries: 5,
+  minDelay: 10,
+  maxDelay: 10000
+};
 
 module.exports = Rabbit;
 
@@ -19,7 +26,8 @@ function Rabbit(options) {
   this.options = options;
   this.url = this.url || options.url;
   this.connected = false;
-  this.ready = false;
+  this._backoff = options.backoff || backoff;
+
   this.connect();
 
 }
@@ -34,15 +42,15 @@ Rabbit.prototype.connect = function () {
 Rabbit.prototype._onConnect = function (err, conn) {
   if (err) return this.emit('error', err);
 
-  this.connected = true;
   this.connection = conn;
   this.emit('connect', this.connection);
 
   // Proxy events that might matter
-  ['close', 'blocked', 'unblocked', 'error'].forEach(function (ev) {
+  ['close', 'blocked', 'unblocked'].forEach(function (ev) {
     this.connection.on(ev, this.emit.bind(this, ev));
   }, this);
 
+  this.connection.on('error', this._onError.bind(this, 'connection'));
   //
   // TODO: Maybe support the creation of multiple channels in the future
   // but for now we only need one. This is required when creating multiple
@@ -55,11 +63,40 @@ Rabbit.prototype._onConnect = function (err, conn) {
 
 };
 
-Rabbit.prototype._onChannel = function (err, ch) {
-  if (err) return this.emit('error', err);
-  this.channel = ch;
-  this.emit('ready', ch);
+//
+// Try and reconnect on error. We override an in progress reconnection in the
+// case where its a connection.
+//
+Rabbit.prototype._onError = function (type, err) {
+  var self = this;
+  this.connected = false;
+  if (this.reconnecting && type !== 'connection') return;
+  if (this.reconnecting && this.attempt) {
+    this.attempt.close();
+    this.attempt = null;
+  }
 
+  this.reconnecting = true;
+  var back = this.attempt || new Back(this._backoff);
+  return back.backoff(function (fail) {
+    if (fail) {
+      self.reconnecting = false;
+      return self.emit('error', err);
+    }
+    if (type === 'connection') self.connect();
+    else self.connection.createChannel(self._onChannel.bind(self));
+  });
+};
+
+Rabbit.prototype._onChannel = function (err, ch) {
+  if (err) return this._onError('channel', err);
+  this.channel = ch;
+  this.reconnecting = false;
+  this.connected = true;
+
+  this.channel.on('error', this._onError.bind(this, 'channel'));
+  this.channel.on('close', this.emit.bind(this, 'channel close'));
+  this.emit('ready', ch);
 
 };
 
