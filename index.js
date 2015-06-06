@@ -4,6 +4,7 @@ var util = require('util');
 var Back = require('back');
 var amqp = require('amqplib/callback_api');
 var sockets = require('./socket');
+var debug = require('diagnostics')('rabbit-rr:rabbit');
 
 var backoff = {
   retries: 5,
@@ -41,7 +42,7 @@ Rabbit.prototype.connect = function () {
 
 Rabbit.prototype._onConnect = function (err, conn) {
   if (err) return this.emit('error', err);
-
+  debug('connection established');
   this.connection = conn;
   this.emit('connect', this.connection);
 
@@ -91,6 +92,7 @@ Rabbit.prototype._onError = function (type, err) {
 
 Rabbit.prototype._onChannel = function (err, ch) {
   if (err) return this._onError('channel', err);
+  debug('channel created')
   this.channel = ch;
   this.reconnecting = false;
   this.connected = true;

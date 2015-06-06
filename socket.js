@@ -213,7 +213,7 @@ function ReqSocket () {
   if (this.ready && this.channel)
     this._setupResponseQueue();
   else
-    this.once('ready', this._setupResponseQueue.bind(this));
+    this.on('ready', this._setupResponseQueue.bind(this));
 }
 
 ReqSocket.prototype._canSend = function () {
