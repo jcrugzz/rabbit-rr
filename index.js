@@ -70,6 +70,7 @@ Rabbit.prototype._onConnect = function (err, conn) {
 //
 Rabbit.prototype._onError = function (type, err) {
   var self = this;
+  debug('Error occurred on %s: %s', type, err);
   this.connected = false;
   if (this.reconnecting && type !== 'connection') return;
   if (this.reconnecting && this.attempt) {
