@@ -130,7 +130,6 @@ describe('Simple request/reply', function () {
       .connect('throughput_queue')
       .on('message', function (msg, reply) {
         ++received;
-        console.log('received %d', received);
         setImmediate(function () {
           reply(undefined, { recv: received });
         });
@@ -141,7 +140,6 @@ describe('Simple request/reply', function () {
       function (callback) {
         req.send({ sent: sent }, function (err, msg) {
           ++replied;
-          console.log('replied %d', replied);
           if (err) { return callback(err); }
           callback();
         });
