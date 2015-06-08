@@ -29,7 +29,6 @@ function Socket (rabbit, options) {
   }
 }
 
-
 Socket.prototype._setup = function (channel) {
   this._setChannel(channel);
   this.ready = true;
@@ -123,7 +122,7 @@ RepSocket.prototype._consume = function (msg) {
   this.emit('message', payload, reply);
 
   function reply(err, data) {
-    debug('rep socket reply being executed %j', arguments);
+    debug('rep socket reply being executed %j', msg);
     if (err) {
       self.emit('application error', err);
       data = { error: true, message: err.message };
@@ -141,7 +140,7 @@ RepSocket.prototype._consume = function (msg) {
     var res = self.channel.sendToQueue(replyTo, self.pack(data), options);
 
     // Ack the message after its processed to let rabbit know whats up
-    // Note that doing this last means messages which kill the receiver will be trapped in the queue
+    // Note that doing this step last means messages which kill the receiver will be trapped in the queue
     self.channel.ack(msg);
 
     return res;
@@ -248,7 +247,6 @@ ReqSocket.prototype._roundRobin = function () {
 ReqSocket.prototype._sendNow = function (message, id) {
   var queue = this._roundRobin();
   if (!queue) return debug('No queue on send with message %j', message);
-  // we have no queues
 
   debug('req socket sending message %j to queue %s with replyTo %s ', message, queue, this.replyTo);
   var options = {
@@ -266,7 +264,6 @@ ReqSocket.prototype.send = function (message, callback) {
   var id = callback.id = this.id();
   this.callbacks[id] = callback;
 
-
   if (!this.isConnected) {
     this._deferredSends.push({ message: message, id: id });
     return this;
@@ -276,5 +273,4 @@ ReqSocket.prototype.send = function (message, callback) {
 
   return this;
 };
-
 
