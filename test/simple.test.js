@@ -1,4 +1,5 @@
 var Rabbit = require('..');
+var async = require('async');
 var assume = require('assume');
 
 describe('Simple request/reply', function () {
@@ -106,6 +107,45 @@ describe('Simple request/reply', function () {
         receipts.second = true;
         return reply(undefined, { second: true });
       });
+  });
+
+  it('should handle a large number of messages and reply to them all', function (done) {
+    this.timeout(60000);
+    var sent = 0;
+    var received = 0;
+    var replied = 0;
+
+    var total = 10000;
+
+    var rab = new Rabbit()
+      .on('error', done);
+
+    var o = new Rabbit()
+      .on('error', done);
+
+    var req = rab.socket('REQ')
+      .connect('throughput_queue');
+
+    var rep = o.socket('REP')
+      .connect('throughput_queue')
+      .on('message', function (msg, reply) {
+        ++received;
+        console.log('received %d', received);
+        setImmediate(function () {
+          reply(undefined, { recv: received });
+        });
+      });
+
+    async.whilst(
+      function () { return sent++ < total; },
+      function (callback) {
+        req.send({ sent: sent }, function (err, msg) {
+          ++replied;
+          console.log('replied %d', replied);
+          if (err) { return callback(err); }
+          callback();
+        });
+      }, done);
   });
 
   it('should handle concurrent messages with different connections', function (done) {
