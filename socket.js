@@ -22,8 +22,6 @@ function Socket (rabbit, options) {
   this.ready = false;
   this.deferredConnection = false;
 
-  this._deferredSends = [];
-
   if(!this.rabbit.ready) {
     this.rabbit.once('ready', this._setup.bind(this));
   } else {
@@ -31,18 +29,6 @@ function Socket (rabbit, options) {
   }
 }
 
-Socket.prototype._onConnected = function () {
-  this.isConnected = true;
-
-  if (!this._sendNow) return;
-  // TODO _sendNow only exists on Req, this needs to move
-  for (var i = 0; i < this._deferredSends.length; i++) {
-    var message = this._deferredSends[i];
-    this._sendNow(message.message, message.id);
-  }
-
-  this._deferredSends = [];
-};
 
 Socket.prototype._setup = function (channel) {
   this._setChannel(channel);
@@ -175,11 +161,24 @@ function ReqSocket () {
   this.queues = [];
   this.callbacks = {};
 
+  this._deferredSends = [];
+
   if (this.ready && this.channel)
     this._setupConsumer();
   else
     this.once('ready', this._setupConsumer.bind(this));
 }
+
+ReqSocket.prototype._sendDeferredMessages = function () {
+  this.isConnected = true;
+
+  for (var i = 0; i < this._deferredSends.length; i++) {
+    var message = this._deferredSends[i];
+    this._sendNow(message.message, message.id);
+  }
+
+  this._deferredSends = [];
+};
 
 ReqSocket.prototype._setupConsumer = function () {
   var self = this;
@@ -230,7 +229,7 @@ ReqSocket.prototype.connect = function (destination) {
     { durable: this.options.persistent }, function (err, ok) {
       if (err) return void self.emit('error', err);
       self.queues.push(ok.queue);
-      self._onConnected();
+      self._sendDeferredMessages();
       self.emit('connect');
     });
 
