@@ -19,7 +19,7 @@ function Socket (rabbit, options) {
   this.channel = undefined;
 
   this.ready = false;
-  this._deferredConnection = false;
+  this._deferredConnections = [];
 
   if(!this.rabbit.ready) {
     this.rabbit.once('ready', this._setup.bind(this));
@@ -32,8 +32,13 @@ Socket.prototype._setup = function (channel) {
   this._setChannel(channel);
   this.ready = true;
   this.emit('ready');
-  if (this._deferredConnection) {
-    var queueName = this._deferredConnection.queueName;
+  if (!this._deferredConnections.length) return;
+
+  //
+  // Connect to call queues that were deferred
+  //
+  for (var i = 0; i < this._deferredConnections.length; i++){
+    var queueName = this._deferredConnections[i].queueName;
     return void this.connect(queueName);
   }
 };
@@ -89,7 +94,7 @@ function RepSocket() {
 
 RepSocket.prototype.connect = function (source) {
   if (!this.ready) {
-    this._deferredConnection = { queueName: source };
+    this._deferredConnections.push({ queueName: source });
     return this;
   }
 
@@ -224,7 +229,7 @@ ReqSocket.prototype._handleReceipt = function (msg) {
 
 ReqSocket.prototype.connect = function (destination) {
   if (!this.ready) {
-    this._deferredConnection = { queueName: destination };
+    this._deferredConnections.push({ queueName: destination });
     return this;
   }
   var self = this;
