@@ -17,10 +17,9 @@ function Socket (rabbit, options) {
   this.options = options || {};
 
   this.channel = undefined;
-  this.isConnected = false;
 
   this.ready = false;
-  this.deferredConnection = false;
+  this._deferredConnection = false;
 
   if(!this.rabbit.ready) {
     this.rabbit.once('ready', this._setup.bind(this));
@@ -33,8 +32,8 @@ Socket.prototype._setup = function (channel) {
   this._setChannel(channel);
   this.ready = true;
   this.emit('ready');
-  if (this.deferredConnection) {
-    var queueName = this.deferredConnection.queueName;
+  if (this._deferredConnection) {
+    var queueName = this._deferredConnection.queueName;
     return void this.connect(queueName);
   }
 };
@@ -90,7 +89,7 @@ function RepSocket() {
 
 RepSocket.prototype.connect = function (source) {
   if (!this.ready) {
-    this.deferredConnection = { queueName: source };
+    this._deferredConnection = { queueName: source };
     return this;
   }
 
@@ -155,21 +154,27 @@ function ReqSocket () {
   this.methods = ['connect', 'send'];
   Socket.apply(this, arguments);
 
-  this.replyTo = undefined;
-  this.rx = 0;
-  this.queues = [];
-  this.callbacks = {};
+  this._replyTo = undefined;
+  this._rx = 0;
+  this._queues = [];
+  this._callbacks = {};
 
   this._deferredSends = [];
+  this._isConnected = false;
+  this._responseQueueIsConnected = false;
 
   if (this.ready && this.channel)
-    this._setupConsumer();
+    this._setupResponseQueue();
   else
-    this.once('ready', this._setupConsumer.bind(this));
+    this.once('ready', this._setupResponseQueue.bind(this));
 }
 
-ReqSocket.prototype._sendDeferredMessages = function () {
-  this.isConnected = true;
+ReqSocket.prototype._canSend = function () {
+  return this._isConnected && this._responseQueueIsConnected;
+};
+
+ReqSocket.prototype._trySendDeferredMessages = function () {
+  if (!this._canSend()) return;
 
   for (var i = 0; i < this._deferredSends.length; i++) {
     var message = this._deferredSends[i];
@@ -179,28 +184,28 @@ ReqSocket.prototype._sendDeferredMessages = function () {
   this._deferredSends = [];
 };
 
-ReqSocket.prototype._setupConsumer = function () {
+ReqSocket.prototype._setupResponseQueue = function () {
   var self = this;
-  //
-  // Remark: We create an ephemeral reply queue here to receive messages on
-  //
+  // Messages sent by the responder will be delivered on this queue
   this.channel.assertQueue('', { exclusive: true, autoDelete: true }, function (err, ok) {
     if (err) { return void self.emit('error', err); }
-    self.replyTo = ok.queue;
+    self._replyTo = ok.queue;
     self.channel.consume(ok.queue, self._consume.bind(self), { noAck: false, exclusive: true });
+    self._responseQueueIsConnected = true;
+    self._trySendDeferredMessages();
   });
 };
 
 ReqSocket.prototype._consume = function (msg) {
   if (msg === null) return debug('Req socket msg received is null');
-  debug('Req socket received reply over ephemeral queue %s %j', this.replyTo, msg);
+  debug('Req socket received reply over ephemeral queue %s %j', this._replyTo, msg);
   this._handleReceipt(msg);
   this.channel.ack(msg);
 };
 
 ReqSocket.prototype._handleReceipt = function (msg) {
   var id = msg.properties.correlationId;
-  var fn = this.callbacks[id];
+  var fn = this._callbacks[id];
 
   // This means that we can fire and forget messages. Is this an intentional feature, or should
   // this indicate that something went wrong?
@@ -208,18 +213,18 @@ ReqSocket.prototype._handleReceipt = function (msg) {
 
   var message = this.parse(msg.content);
 
+  delete this._callbacks[id];
+
   if (message.error && message.message) {
     var error = new Error(message.message);
-    fn(error);
-    delete this.callbacks[id];
+    return fn(error);
   }
   fn(null, message);
-  delete this.callbacks[id];
 };
 
 ReqSocket.prototype.connect = function (destination) {
   if (!this.ready) {
-    this.deferredConnection = { queueName: destination };
+    this._deferredConnection = { queueName: destination };
     return this;
   }
   var self = this;
@@ -227,8 +232,9 @@ ReqSocket.prototype.connect = function (destination) {
   this.channel.assertQueue(destination,
     { durable: this.options.persistent }, function (err, ok) {
       if (err) return void self.emit('error', err);
-      self.queues.push(ok.queue);
-      self._sendDeferredMessages();
+      self._queues.push(ok.queue);
+      self._isConnected = true;
+      self._trySendDeferredMessages();
       self.emit('connect');
     });
 
@@ -240,17 +246,17 @@ ReqSocket.prototype.id = function () {
 };
 
 ReqSocket.prototype._roundRobin = function () {
-  if (this.rx >= this.queues.length) this.rx = 0;
-  return this.queues[this.rx++];
+  if (this._rx >= this._queues.length) this._rx = 0;
+  return this._queues[this._rx++];
 };
 
 ReqSocket.prototype._sendNow = function (message, id) {
   var queue = this._roundRobin();
   if (!queue) return debug('No queue on send with message %j', message);
 
-  debug('req socket sending message %j to queue %s with replyTo %s ', message, queue, this.replyTo);
+  debug('req socket sending message %j to queue %s with replyTo %s ', message, queue, this._replyTo);
   var options = {
-    replyTo: this.replyTo,
+    replyTo: this._replyTo,
     deliveryMode: true,
     correlationId: id,
     expiration: this.options.expiration,
@@ -262,9 +268,9 @@ ReqSocket.prototype._sendNow = function (message, id) {
 
 ReqSocket.prototype.send = function (message, callback) {
   var id = callback.id = this.id();
-  this.callbacks[id] = callback;
+  this._callbacks[id] = callback;
 
-  if (!this.isConnected) {
+  if (!this._canSend()) {
     this._deferredSends.push({ message: message, id: id });
     return this;
   }
