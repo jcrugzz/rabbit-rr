@@ -64,7 +64,7 @@ Rabbit.prototype._onChannel = function (err, ch) {
 };
 
 Rabbit.prototype.socket = function (type, options) {
-  var Socket = sockets[type];
+  var Socket = sockets[type.toLowerCase()];
   if (!Socket) {
     var error = new Error('Invalid socket type');
     return process.nextTick(this.emit.bind(this, 'error', error));

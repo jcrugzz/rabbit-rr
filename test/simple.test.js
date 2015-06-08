@@ -17,12 +17,12 @@ describe('Simple request/reply', function () {
       .on('ready', function () {
         console.log('REQ socket ready');
       })
-      .connect('made_up_queue')
       .on('connect', function () {
         console.log('REQ has connected');
       })
+      .connect('made_up_queue')
       .send({foo: 'bar'}, function (err, msg) {
-        assume(err).does.not.exist()
+        assume(err).does.not.exist();
         assume(msg).is.an('object');
         assume(msg.reply).is.ok();
         assume(msg.reply).equals('wooo');
@@ -37,10 +37,10 @@ describe('Simple request/reply', function () {
       .on('ready', function () {
         console.log('REP socket ready');
       })
-      .connect('made_up_queue')
       .on('connect', function () {
         console.log('REP has connected');
       })
+      .connect('made_up_queue')
       .on('message', function (msg, reply) {
         assume(msg).is.an('object');
         assume(msg.foo).is.ok();
