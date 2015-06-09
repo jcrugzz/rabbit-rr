@@ -2,6 +2,7 @@
 var EE = require('events').EventEmitter;
 var util = require('util');
 var Back = require('back');
+var url = require('url');
 var amqp = require('amqplib/callback_api');
 var sockets = require('./socket');
 var debug = require('diagnostics')('rabbit-rr:rabbit');
@@ -31,9 +32,20 @@ function Rabbit(options) {
   }
 
   this.options = extend(DEFAULTS, options);
-  this.url = this.url || options.url;
+  this.url = this.url || options.url || 'amqp://localhost';
+  this.parsed = url.parse(this.url);
+  this.parsed.query = this.parsed.query || {};
+
+  //
+  // This heartbeat is in seconds
+  //
+  this.heartbeat = options.heartbeat || 5;
   this.connected = false;
   this._backoff = options.backoff || backoff;
+
+  if (this.heartbeat) this.parsed.query.heartbeat = this.heartbeat;
+
+  this.url = url.format(this.parsed);
 
   this.connect();
 
