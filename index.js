@@ -11,7 +11,7 @@ var extend = util._extend;
 
 var backoff = {
   retries: 5,
-  minDelay: 10,
+  minDelay: 50,
   maxDelay: 10000
 };
 
@@ -59,7 +59,7 @@ Rabbit.prototype.connect = function () {
 };
 
 Rabbit.prototype._onConnect = function (err, conn) {
-  if (err) return this.emit('error', err);
+  if (err) return this._onError('connection', err);
   debug('connection established');
   this.connection = conn;
   this.emit('connect', this.connection);
@@ -90,19 +90,31 @@ Rabbit.prototype._onError = function (type, err) {
   var self = this;
   debug('Error occurred on %s: %s', type, err);
   this.connected = false;
-  if (this.reconnecting && type !== 'connection') return;
-  if (this.reconnecting && this.attempt) {
+  //
+  // Don't execute another reconnectio attempt if a connection reconnect is
+  // happening. Only override a channel reconnection if a connection dies
+  //
+  if (this.reconnecting && (type !== 'connection' || this.reconnectType !== 'channel')) return;
+  if (this.reconnecting && this.attempt && this.reconnectType === 'channel') {
     this.attempt.close();
     this.attempt = null;
   }
-  this.emit('disconnect');
+  //
+  // Keep track of the type of reconnect so we can establish our override case
+  //
+  this.reconnectType = type;
+
+  debug('disconnect');
+  this.emit('reconnect');
 
   this.reconnecting = true;
-  var back = this.attempt || new Back(this._backoff);
+  var back = this.attempt = this.attempt || new Back(this._backoff);
+  debug('begin reconnect');
   return back.backoff(function (fail) {
+    self.reconnecting = false;
     if (fail) {
+      debug('fail %j', back.settings);
       this.attempt = null;
-      self.reconnecting = false;
       return self.emit('error', err);
     }
     if (type === 'connection') self.connect();
@@ -121,6 +133,12 @@ Rabbit.prototype._onChannel = function (err, ch) {
   this.channel.on('error', this._onError.bind(this, 'channel'));
   this.channel.on('close', this.emit.bind(this, 'channel close'));
   this.emit('ready', ch);
+
+  //
+  // Emit a private ready event so we can reduce the number of listeners on it
+  // and not feel bad because users shouldn't be using it.
+  //
+  this.emit('__ready__', ch);
 
 };
 
