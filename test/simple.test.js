@@ -8,7 +8,8 @@ describe('Simple request/reply', function () {
     var rabbit = new Rabbit()
       .on('ready', function () {
         console.log('rabbit ready');
-      });
+      })
+      .on('error', done);
 
     var req = rabbit.socket('REQ')
       .on('error', function (err) {

@@ -6,10 +6,16 @@ var amqp = require('amqplib/callback_api');
 var sockets = require('./socket');
 var debug = require('diagnostics')('rabbit-rr:rabbit');
 
+var extend = util._extend;
+
 var backoff = {
   retries: 5,
   minDelay: 10,
   maxDelay: 10000
+};
+
+var DEFAULTS = {
+  keepAlive: true
 };
 
 module.exports = Rabbit;
@@ -24,7 +30,7 @@ function Rabbit(options) {
     options = {};
   }
 
-  this.options = options;
+  this.options = extend(DEFAULTS, options);
   this.url = this.url || options.url;
   this.connected = false;
   this._backoff = options.backoff || backoff;
