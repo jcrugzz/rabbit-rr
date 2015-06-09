@@ -23,7 +23,7 @@ function Socket (rabbit, options) {
   // queues post
   //
   this.reconnecting = false;
-  this.rabbit.on('disconnect', function () {
+  this.rabbit.on('reconnect', function () {
     this.reconnecting = true;
     this.initialize();
   }.bind(this));
@@ -63,7 +63,7 @@ Socket.prototype.connectAll = function (queues) {
   //
   // Connect to call queues that were deferred
   //
-  for (var i = 0; i < queues.length; i++){
+  for (var i = 0; i < queues.length; i++) {
     var queue = queues[i];
     return void this.connect(queue);
   }
@@ -306,7 +306,7 @@ ReqSocket.prototype._handleReceipt = function (msg) {
 ReqSocket.prototype.connect = function (destination) {
   debug('req socket connect called');
   if (!this.ready) {
-    this._deferredConnections.push({ queueName: destination });
+    this._deferredConnections.push(destination);
     return this;
   }
   var self = this;

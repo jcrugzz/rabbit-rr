@@ -77,6 +77,7 @@ Rabbit.prototype._onError = function (type, err) {
     this.attempt.close();
     this.attempt = null;
   }
+  this.emit('disconnect');
 
   this.reconnecting = true;
   var back = this.attempt || new Back(this._backoff);
