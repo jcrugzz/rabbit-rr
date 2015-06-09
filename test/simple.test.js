@@ -3,7 +3,7 @@ var async = require('async');
 var assume = require('assume');
 
 describe('Simple request/reply', function () {
-
+  this.timeout(30000);
   it('should succeed', function (done) {
     var rabbit = new Rabbit()
       .on('ready', function () {
@@ -110,7 +110,6 @@ describe('Simple request/reply', function () {
   });
 
   it('should handle a large number of messages and reply to them all', function (done) {
-    this.timeout(60000);
     var sent = 0;
     var received = 0;
     var replied = 0;
