@@ -16,30 +16,65 @@ function Socket (rabbit, options) {
   this.rabbit = rabbit;
   this.options = options || {};
 
+  this._deferredConnections = [];
+
+  //
+  // When we disconnect we gotta re-defer methods and setup reconnection to our
+  // queues post
+  //
+  this.reconnecting = false;
+  this.rabbit.on('reconnect', function () {
+    this.reconnecting = true;
+    this.initialize();
+  }.bind(this));
+
+  this.initialize();
+}
+
+Socket.prototype.initialize = function () {
   this.channel = undefined;
 
   this.ready = false;
-  this._deferredConnections = [];
 
-  if(!this.rabbit.ready) {
-    this.rabbit.once('ready', this._setup.bind(this));
+  if (!this.rabbit.connected) {
+    debug('set up ready listener for %s', this.type);
+
+    //
+    // Reduce the number of listeners that can be assigned so we ensure this
+    // only happens once when there are many potential reconnect events that
+    // trigger this block
+    //
+    if (this.rabbit.listeners('__ready__').length >= 1) return;
+    this.rabbit.once('__ready__', this._setup.bind(this));
   } else {
     this._setup(this.rabbit.channel);
   }
-}
+
+};
 
 Socket.prototype._setup = function (channel) {
+  debug('%s socket setup', this.type);
   this._setChannel(channel);
   this.ready = true;
   this.emit('ready');
   if (!this._deferredConnections.length) return;
 
+  debug('Running deferred connects %s', this._deferredConnections);
+  this.connectAll(this._deferredConnections);
+
+  //
+  // Reset array after connecting
+  //
+  this._deferredConnections = [];
+
+};
+
+Socket.prototype.connectAll = function (queues) {
   //
   // Connect to call queues that were deferred
   //
-  for (var i = 0; i < this._deferredConnections.length; i++){
-    var queueName = this._deferredConnections[i].queueName;
-    return void this.connect(queueName);
+  for (var i = 0; i < queues.length; i++) {
+    this.connect(queues[i]);
   }
 };
 
@@ -51,9 +86,9 @@ Socket.prototype._setChannel = function (channel) {
     this.channel.prefetch(this.options.prefetch);
   }
 
-  this.channel.on('error', this.emit.bind(this, 'error')); // TODO: Do we have to cleanup anything?
-
-  this.channel.on('close', this.emit.bind(this, 'close'));
+  //
+  // These aren't strictly necessary but could be interesting to look at maybe?
+  //
   this.channel.on('drain', this.emit.bind(this, 'drain'));
   this.channel.on('readable', this.emit.bind(this, 'readable'));
 };
@@ -67,7 +102,10 @@ Socket.prototype.parse = function (content) {
   var message;
 
   try { message = JSON.parse(content); }
-  catch (ex) { console.log(ex); message = undefined; }
+  catch (ex) {
+    debug('json parse exception %s', ex);
+    message = undefined;
+  }
 
   if (!message) this.emit('parse error', content);
   return message;
@@ -87,24 +125,39 @@ util.inherits(RepSocket, Socket);
 function RepSocket() {
   this.type = 'REP';
   this.methods = ['connect'];
-  Socket.apply(this, arguments);
 
   this.consumers = {};
+
+  //
+  // Handle reconnecting
+  //
+  this.on('ready', function () {
+    if (!this.reconnecting) { return; }
+    var sources = Object.keys(this.consumers);
+    debug('Rep on Ready reconnect %j', sources);
+    this.consumers = {};
+    this.connectAll(sources);
+  }.bind(this));
+
+  Socket.apply(this, arguments);
+
 }
 
 RepSocket.prototype.connect = function (source) {
+  debug('REP socket connect called %s', source)
   if (!this.ready) {
-    this._deferredConnections.push({ queueName: source });
+    debug('rep socket defer connection %s', source);
+    this._deferredConnections.push(source);
     return this;
   }
 
   if (this.consumers[source]) {
-    process.nextTick(callback.bind(this, source));
     return this;
   }
-
+  debug('rep socket executing connect %s', source);
   var self = this;
   this.channel.assertQueue(source, { durable: this.options.persistent }, function (err, ok) {
+    debug('REP socket connected %s', source);
     if (err) return void self.emit('error', err);
     self.channel.consume(source, self._consume.bind(self), { noAck: false });
     self.consumers[source] = ok.consumerTag;
@@ -129,7 +182,7 @@ RepSocket.prototype._consume = function (msg) {
     debug('rep socket reply being executed %j', msg);
     if (err) {
       self.emit('application error', err);
-      data = { error: true, message: err.message };
+      data = { __error: true, message: err.message };
     }
 
     var replyTo = msg.properties.replyTo;
@@ -157,22 +210,33 @@ util.inherits(ReqSocket, Socket);
 function ReqSocket () {
   this.type = 'REQ';
   this.methods = ['connect', 'send'];
+
   Socket.apply(this, arguments);
 
+  this.rabbit.on('reconnect', function () {
+    this._isConnected = false;
+    this._responseQueueIsConnected = false;
+  }.bind(this));
+
+  this._readyCalled = false;
   this._replyTo = undefined;
   this._rx = 0;
-  this._queues = [];
   this._callbacks = {};
 
   this._deferredSends = [];
-  this._isConnected = false;
-  this._responseQueueIsConnected = false;
+  this._dests = [];
+  this._queues = [];
 
-  if (this.ready && this.channel)
-    this._setupResponseQueue();
-  else
-    this.once('ready', this._setupResponseQueue.bind(this));
-}
+
+  if (this.ready && this.channel) {
+    debug('%s channel ready, setting up response queue', this.type);
+    this._onReady();
+  } else {
+    debug('%s channel waiting on ready', this.type);
+    this.on('ready', this._onReady.bind(this));
+  }
+
+};
 
 ReqSocket.prototype._canSend = function () {
   return this._isConnected && this._responseQueueIsConnected;
@@ -189,12 +253,34 @@ ReqSocket.prototype._trySendDeferredMessages = function () {
   this._deferredSends = [];
 };
 
+//
+// When we are reconnecting we need to reconnect to our queues on the new
+// channel
+//
+ReqSocket.prototype._onReady = function () {
+  debug('req socket on ready')
+  if (!this.reconnecting) return this._setupResponseQueue();
+
+  this._setupResponseQueue()
+  //
+  // We might want to do something about the callbacks here as well since they
+  // will never get responses. Do we assume them as done or use some sort of
+  // timeout mechanism?
+  //
+  var dests = this._dests;
+  this._queues = [];
+  this._dests = [];
+  debug('reconnecting to %j', dests);
+  this.connectAll(dests);
+};
 ReqSocket.prototype._setupResponseQueue = function () {
+  debug('setup consumer req');
   var self = this;
   // Messages sent by the responder will be delivered on this queue
   this.channel.assertQueue('', { exclusive: true, autoDelete: true }, function (err, ok) {
     if (err) { return void self.emit('error', err); }
     self._replyTo = ok.queue;
+    debug('reply queue asserted %s %j', err, ok);
     self.channel.consume(ok.queue, self._consume.bind(self), { noAck: false, exclusive: true });
     self._responseQueueIsConnected = true;
     self._trySendDeferredMessages();
@@ -203,7 +289,7 @@ ReqSocket.prototype._setupResponseQueue = function () {
 
 ReqSocket.prototype._consume = function (msg) {
   if (msg === null) return debug('Req socket msg received is null');
-  debug('Req socket received reply over ephemeral queue %s %j', this._replyTo, msg);
+  debug('Req socket received reply over ephemeral queue %s', this._replyTo);
   this._handleReceipt(msg);
   this.channel.ack(msg);
 };
@@ -220,22 +306,30 @@ ReqSocket.prototype._handleReceipt = function (msg) {
 
   delete this._callbacks[id];
 
-  if (message.error && message.message) {
+  //
+  // Remark: since we can't really error should we just respond with the message?
+  //
+  if (message.__error && message.message) {
     var error = new Error(message.message);
     return fn(error);
   }
+
   fn(null, message);
 };
 
 ReqSocket.prototype.connect = function (destination) {
+  debug('req socket connect called %s', destination);
   if (!this.ready) {
-    this._deferredConnections.push({ queueName: destination });
+    debug('deferring connect %s', destination);
+    this._deferredConnections.push(destination);
     return this;
   }
+  debug('executing connect %s', destination);
   var self = this;
-
+  this._dests.push(destination);
   this.channel.assertQueue(destination,
     { durable: this.options.persistent }, function (err, ok) {
+      debug('req socket send queue connected %s', destination);
       if (err) return void self.emit('error', err);
       self._queues.push(ok.queue);
       self._isConnected = true;

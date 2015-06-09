@@ -1,13 +1,17 @@
 var Rabbit = require('..');
+var async = require('async');
 var assume = require('assume');
 
 describe('Simple request/reply', function () {
-
+  this.timeout(60000);
   it('should succeed', function (done) {
     var rabbit = new Rabbit()
       .on('ready', function () {
         console.log('rabbit ready');
-      });
+      })
+      .on('error', done);
+
+    var rab = new Rabbit();
 
     var req = rabbit.socket('REQ')
       .on('error', function (err) {
@@ -29,7 +33,7 @@ describe('Simple request/reply', function () {
         done();
       });
 
-    var rep = rabbit.socket('REP')
+    var rep = rab.socket('REP')
       .on('error', function (err) {
         assume(err).does.not.exist();
         done(err);
@@ -106,6 +110,42 @@ describe('Simple request/reply', function () {
         receipts.second = true;
         return reply(undefined, { second: true });
       });
+  });
+
+  it('should handle a large number of messages and reply to them all', function (done) {
+    var sent = 0;
+    var received = 0;
+    var replied = 0;
+
+    var total = 10000;
+
+    var rab = new Rabbit()
+      .on('error', done);
+
+    var o = new Rabbit()
+      .on('error', done);
+
+    var req = rab.socket('REQ')
+      .connect('throughput_queue');
+
+    var rep = o.socket('REP')
+      .connect('throughput_queue')
+      .on('message', function (msg, reply) {
+        ++received;
+        setImmediate(function () {
+          reply(undefined, { recv: received });
+        });
+      });
+
+    async.whilst(
+      function () { return sent++ < total; },
+      function (callback) {
+        req.send({ sent: sent }, function (err, msg) {
+          ++replied;
+          if (err) { return callback(err); }
+          callback();
+        });
+      }, done);
   });
 
   it('should handle concurrent messages with different connections', function (done) {
