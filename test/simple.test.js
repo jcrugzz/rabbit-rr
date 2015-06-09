@@ -3,13 +3,15 @@ var async = require('async');
 var assume = require('assume');
 
 describe('Simple request/reply', function () {
-  this.timeout(30000);
+  this.timeout(60000);
   it('should succeed', function (done) {
     var rabbit = new Rabbit()
       .on('ready', function () {
         console.log('rabbit ready');
       })
       .on('error', done);
+
+    var rab = new Rabbit();
 
     var req = rabbit.socket('REQ')
       .on('error', function (err) {
@@ -31,7 +33,7 @@ describe('Simple request/reply', function () {
         done();
       });
 
-    var rep = rabbit.socket('REP')
+    var rep = rab.socket('REP')
       .on('error', function (err) {
         assume(err).does.not.exist();
         done(err);
