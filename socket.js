@@ -32,16 +32,20 @@ function Socket (rabbit, options) {
 }
 
 Socket.prototype.initialize = function () {
-  //
-  // Only try and defer connect because send makes things way complicated right
-  // now
-
   this.channel = undefined;
 
   this.ready = false;
 
   if (!this.rabbit.connected) {
-    this.rabbit.once('ready', this._setup.bind(this));
+    debug('set up ready listener for %s', this.type);
+
+    //
+    // Reduce the number of listeners that can be assigned so we ensure this
+    // only happens once when there are many potential reconnect events that
+    // trigger this block
+    //
+    if (this.rabbit.listeners('__ready__').length >= 1) return;
+    this.rabbit.once('__ready__', this._setup.bind(this));
   } else {
     this._setup(this.rabbit.channel);
   }
@@ -55,7 +59,13 @@ Socket.prototype._setup = function (channel) {
   this.emit('ready');
   if (!this._deferredConnections.length) return;
 
+  debug('Running deferred connects %s', this._deferredConnections);
   this.connectAll(this._deferredConnections);
+
+  //
+  // Reset array after connecting
+  //
+  this._deferredConnections = [];
 
 };
 
@@ -64,8 +74,7 @@ Socket.prototype.connectAll = function (queues) {
   // Connect to call queues that were deferred
   //
   for (var i = 0; i < queues.length; i++) {
-    var queue = queues[i];
-    return void this.connect(queue);
+    this.connect(queues[i]);
   }
 };
 
@@ -125,6 +134,7 @@ function RepSocket() {
   this.on('ready', function () {
     if (!this.reconnecting) { return; }
     var sources = Object.keys(this.consumers);
+    debug('Rep on Ready reconnect %j', sources);
     this.consumers = {};
     this.connectAll(sources);
   }.bind(this));
@@ -134,7 +144,9 @@ function RepSocket() {
 }
 
 RepSocket.prototype.connect = function (source) {
+  debug('REP socket connect called %s', source)
   if (!this.ready) {
+    debug('rep socket defer connection %s', source);
     this._deferredConnections.push(source);
     return this;
   }
@@ -142,9 +154,10 @@ RepSocket.prototype.connect = function (source) {
   if (this.consumers[source]) {
     return this;
   }
-
+  debug('rep socket executing connect %s', source);
   var self = this;
   this.channel.assertQueue(source, { durable: this.options.persistent }, function (err, ok) {
+    debug('REP socket connected %s', source);
     if (err) return void self.emit('error', err);
     self.channel.consume(source, self._consume.bind(self), { noAck: false });
     self.consumers[source] = ok.consumerTag;
@@ -205,6 +218,7 @@ function ReqSocket () {
     this._responseQueueIsConnected = false;
   }.bind(this));
 
+  this._readyCalled = false;
   this._replyTo = undefined;
   this._rx = 0;
   this._callbacks = {};
@@ -216,7 +230,7 @@ function ReqSocket () {
 
   if (this.ready && this.channel) {
     debug('%s channel ready, setting up response queue', this.type);
-    this._setupResponseQueue();
+    this._onReady();
   } else {
     debug('%s channel waiting on ready', this.type);
     this.on('ready', this._onReady.bind(this));
@@ -256,7 +270,7 @@ ReqSocket.prototype._onReady = function () {
   var dests = this._dests;
   this._queues = [];
   this._dests = [];
-
+  debug('reconnecting to %j', dests);
   this.connectAll(dests);
 };
 ReqSocket.prototype._setupResponseQueue = function () {
@@ -304,16 +318,18 @@ ReqSocket.prototype._handleReceipt = function (msg) {
 };
 
 ReqSocket.prototype.connect = function (destination) {
-  debug('req socket connect called');
+  debug('req socket connect called %s', destination);
   if (!this.ready) {
+    debug('deferring connect %s', destination);
     this._deferredConnections.push(destination);
     return this;
   }
+  debug('executing connect %s', destination);
   var self = this;
   this._dests.push(destination);
   this.channel.assertQueue(destination,
     { durable: this.options.persistent }, function (err, ok) {
-      debug('req socket send queue connected');
+      debug('req socket send queue connected %s', destination);
       if (err) return void self.emit('error', err);
       self._queues.push(ok.queue);
       self._isConnected = true;
